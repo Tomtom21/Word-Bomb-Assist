@@ -1,12 +1,10 @@
+import time
+import os
+import sys
 import cv2
 import easyocr
 import numpy as np
-import sys
 import mss
-import mss.tools
-import time
-import os
-import nltk
 from nltk.corpus import words
 from wordfreq import zipf_frequency
 
@@ -17,9 +15,14 @@ DEBUG = '--debug' in sys.argv
 reader = easyocr.Reader(['en'])
 
 def filter_boxed_letter_color(img):
-    # Convert hex 8e95ac to BGR: (172, 149, 142)
+    """
+    Generates bounding boxes for characters in an image using contours and known colors
+    """
+    # These color ranges are based on bounding box and letter colors from the game
     lower = np.array([162, 139, 132], dtype=np.uint8)
     upper = np.array([182, 159, 152], dtype=np.uint8)
+
+    # Generating a mask and using contours to find bounding boxes around characters
     mask = cv2.inRange(img, lower, upper)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     boxed_imgs = []
@@ -30,6 +33,10 @@ def filter_boxed_letter_color(img):
     return boxed_imgs
 
 def preprocess_for_boxed_letters(img):
+    """
+    Applies pre-processing steps to an image prior to OCR to improve detection capabilities.
+    Without things like blur, OCR struggles to detect larger characters more.
+    """
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     upscaled = cv2.resize(gray, None, fx=4, fy=4, interpolation=cv2.INTER_LINEAR)
     blur = cv2.blur(upscaled, (6, 6))
@@ -43,11 +50,16 @@ def main():
     with mss.mss() as sct:
         monitor = sct.monitors[1]
         print("Screen capture started. Press 'q' to quit.")
+
+        # main loop
         while True:
+            # Getting an image (ignoring any alpha channel)
             sct_img = sct.grab(monitor)
             frame = np.array(sct_img)
             if frame.shape[2] == 4:
                 frame = frame[:, :, :3]
+
+            # Getting bounding boxes for each character and running OCR on them
             boxed_imgs = filter_boxed_letter_color(frame)
             detected_letters = ''
             for boxed_img in boxed_imgs:
@@ -56,19 +68,20 @@ def main():
                 detected_letters += ''.join([w.lower() for w in box_result if len(w) == 1 and (w.isalpha() or w == '0')])
                 detected_letters = detected_letters.replace('0', 'o')
 
+            # Clearing our output terminal to keep things clean
             os.system('cls || clear')
+
+            # Using the detected characters to find matching words in the word list. Printing them to the terminal
             if detected_letters:
-                # print(f"Detected boxed letters: {detected_letters[::-1]}")
-                # print(detected_letters)
                 seq = detected_letters[::-1]
                 result = [w for w in word_list if seq in w and 4 <= len(w) <= 7]
                 filtered = [
                     w for w in result
                     if seq in w and zipf_frequency(w, "en") >= 3.0
                 ]
-                # for w in result[:50]:
-                #     print(w)
                 print(filtered[:50])
+
+            # Debugging mode to show the character bounding boxes.
             if DEBUG:
                 for i, boxed_img in enumerate(boxed_imgs):
                     preprocessed_box = preprocess_for_boxed_letters(boxed_img)
@@ -83,4 +96,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
